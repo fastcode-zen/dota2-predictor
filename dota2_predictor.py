@@ -44,6 +44,19 @@ def load_model_and_data():
         return None, None, None
 
 @st.cache_resource
+def load_model_v2():
+    """Load model v2 (poc_03_scripted_model.pt)"""
+    try:
+        model_dir = './'
+        loaded_model_v2 = torch.jit.load(f"{model_dir}/poc_03_scripted_model.pt", map_location='cpu')
+        loaded_model_v2 = loaded_model_v2.cpu()
+        loaded_model_v2.eval()
+        return loaded_model_v2
+    except Exception as e:
+        st.error(f"Error loading model v2: {str(e)}")
+        return None
+
+@st.cache_resource
 def load_role_artifacts():
     """Optionally load encoder and model for hero role prediction if available."""
     try:
@@ -344,6 +357,7 @@ def main():
     
     # Load model and data
     model, idx_to_name, name_to_idx = load_model_and_data()
+    model_v2 = load_model_v2()
     
     if model is None or idx_to_name is None or name_to_idx is None:
         st.error("Failed to load model or data files. Please check if the files exist in the current directory.")
@@ -461,6 +475,85 @@ def main():
     
     st.markdown("---")
     
+    # Predict button V1
+    if st.button("🔮 Predict Match Duration (v1)", type="primary", use_container_width=True):
+        if len(set(all_selected_heroes)) == 10:
+            hero_indices = [name_to_idx[hero] for hero in all_selected_heroes]
+            probabilities = predict_duration(model, hero_indices)
+            if probabilities is not None:
+                predicted_class = torch.argmax(probabilities, dim=1).item()
+                predicted_prob = torch.max(probabilities, dim=1)[0].item()
+                predicted_duration = get_desc_from_label_id(predicted_class)
+                st.markdown("### 📊 Prediction Results (v1)")
+                st.metric("Predicted Duration", f"{predicted_duration} minutes")
+                st.metric("Confidence", f"{predicted_prob:.1%}")
+                fig = draw_distribution(probabilities, correct_label=predicted_class, 
+                                      heros=[torch.tensor(idx, device='cpu') for idx in hero_indices], idx_to_name=idx_to_name)
+                st.pyplot(fig)
+        else:
+            st.error("❌ Please select 10 unique heroes (5 for each team) before predicting.")
+
+    # Predict button V2
+    if st.button("🔮 Predict Match Duration (v2)", type="primary", use_container_width=True):
+        if model_v2 is None:
+            st.error("Model v2 not found. Please add poc_03_scripted_model.pt to the project directory.")
+            return
+        if len(set(all_selected_heroes)) == 10:
+            hero_indices = [name_to_idx[hero] for hero in all_selected_heroes]
+            probabilities_v2 = predict_duration(model_v2, hero_indices)
+            if probabilities_v2 is not None:
+                predicted_class_v2 = torch.argmax(probabilities_v2, dim=1).item()
+                predicted_prob_v2 = torch.max(probabilities_v2, dim=1)[0].item()
+                predicted_duration_v2 = get_desc_from_label_id(predicted_class_v2)
+                st.markdown("### 📊 Prediction Results (v2)")
+                st.metric("Predicted Duration (v2)", f"{predicted_duration_v2} minutes")
+                st.metric("Confidence (v2)", f"{predicted_prob_v2:.1%}")
+                fig_v2 = draw_distribution(probabilities_v2, correct_label=predicted_class_v2, 
+                                      heros=[torch.tensor(idx, device='cpu') for idx in hero_indices], idx_to_name=idx_to_name)
+                st.pyplot(fig_v2)
+        else:
+            st.error("❌ Please select 10 unique heroes (5 for each team) before predicting.")
+
+    # Compare button (move below the two predict buttons)
+    if st.button("🔬 Compare v1 & v2", type="primary", use_container_width=True):
+        if model is None or model_v2 is None:
+            st.error("Missing model v1 or v2. Please check your model files.")
+            return
+        if len(set(all_selected_heroes)) == 10:
+            hero_indices = [name_to_idx[hero] for hero in all_selected_heroes]
+            probabilities_v1 = predict_duration(model, hero_indices)
+            probabilities_v2 = predict_duration(model_v2, hero_indices)
+            if probabilities_v1 is not None and probabilities_v2 is not None:
+                predicted_class_v1 = torch.argmax(probabilities_v1, dim=1).item()
+                predicted_prob_v1 = torch.max(probabilities_v1, dim=1)[0].item()
+                predicted_duration_v1 = get_desc_from_label_id(predicted_class_v1)
+
+                predicted_class_v2 = torch.argmax(probabilities_v2, dim=1).item()
+                predicted_prob_v2 = torch.max(probabilities_v2, dim=1)[0].item()
+                predicted_duration_v2 = get_desc_from_label_id(predicted_class_v2)
+
+                col_v1, col_v2 = st.columns(2)
+                with col_v1:
+                    st.markdown("### 📊 Prediction Results (v1)")
+                    st.metric("Predicted Duration", f"{predicted_duration_v1} minutes")
+                    st.metric("Confidence", f"{predicted_prob_v1:.1%}")
+                    fig_v1 = draw_distribution(probabilities_v1, correct_label=predicted_class_v1, 
+                        heros=[torch.tensor(idx, device='cpu') for idx in hero_indices], idx_to_name=idx_to_name)
+                    st.pyplot(fig_v1)
+                with col_v2:
+                    st.markdown("### 📊 Prediction Results (v2)")
+                    st.metric("Predicted Duration", f"{predicted_duration_v2} minutes")
+                    st.metric("Confidence", f"{predicted_prob_v2:.1%}")
+                    fig_v2 = draw_distribution(probabilities_v2, correct_label=predicted_class_v2, 
+                        heros=[torch.tensor(idx, device='cpu') for idx in hero_indices], idx_to_name=idx_to_name)
+                    st.pyplot(fig_v2)
+            else:
+                st.error("Error occurred during prediction with model v1 or v2.")
+        else:
+            st.error("❌ Please select 10 unique heroes (5 for each team) before comparing.")
+
+    st.markdown("---")
+    
     # Predict hero roles button
     if st.button("🛡️ Predict Hero Roles", type="secondary", use_container_width=True):
         role_to_lane = {
@@ -499,72 +592,6 @@ def main():
                     for item in role_preds['dire']:
                         st.write(f"{get_hero_name_from_id(item['hero_id'])}: {role_to_lane[item['predicted_role']]}")
 
-    # Predict button
-    if st.button("🔮 Predict Match Duration", type="primary", use_container_width=True):
-        if len(set(all_selected_heroes)) == 10:  # All heroes are unique
-            # Convert hero names to indices
-            hero_indices = []
-            for hero in all_selected_heroes:
-                hero_indices.append(name_to_idx[hero])
-            
-            # Make prediction
-            probabilities = predict_duration(model, hero_indices)
-            
-            if probabilities is not None:
-                # Get predicted class and probability
-                predicted_class = torch.argmax(probabilities, dim=1).item()
-                predicted_prob = torch.max(probabilities, dim=1)[0].item()
-                predicted_duration = get_desc_from_label_id(predicted_class)
-                
-                # Display results
-                st.markdown("### 📊 Prediction Results")
-                
-                # Show match ID if available
-                if 'match_id' in st.session_state:
-                    st.info(f"🎮 **Match ID:** {st.session_state.match_id} | [View on OpenDota](https://www.opendota.com/matches/{st.session_state.match_id})")
-                
-                # Create metrics
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Predicted Duration", f"{predicted_duration} minutes")
-                with col2:
-                    st.metric("Confidence", f"{predicted_prob:.1%}")
-                with col3:
-                    most_likely_range = predicted_duration
-                    st.metric("Most Likely Range", most_likely_range)
-                
-                # Create and display chart using your original function
-                hero_indices_tensor = [torch.tensor(idx, device='cpu') for idx in hero_indices]
-                fig = draw_distribution(probabilities, correct_label=predicted_class, 
-                                      heros=hero_indices_tensor, idx_to_name=idx_to_name)
-                st.pyplot(fig)
-                
-                # Display probability table
-                st.markdown("### 📈 Detailed Probabilities")
-                prob_data = []
-                probabilities_np = probabilities.squeeze().cpu().numpy()
-                
-                for i, prob in enumerate(probabilities_np):
-                    duration_range = get_desc_from_label_id(i)
-                    prob_data.append({
-                        "Duration Range (minutes)": duration_range,
-                        "Probability": f"{prob:.3f}",
-                        "Percentage": f"{prob:.1%}"
-                    })
-                
-                df = pd.DataFrame(prob_data)
-                # Highlight the highest probability row
-                max_idx = np.argmax(probabilities_np)
-                
-                def highlight_max(s):
-                    is_max = s.index == max_idx
-                    return ['background-color: orange' if v else '' for v in is_max]
-                
-                st.dataframe(df.style.apply(highlight_max, axis=0), use_container_width=True)
-                
-        else:
-            st.error("❌ Please select 10 unique heroes (5 for each team) before predicting.")
-    
     # Add some information about the model
     with st.expander("ℹ️ About This Predictor"):
         st.markdown("""
@@ -587,6 +614,7 @@ def main():
         2. Select 5 heroes for Dire team
         3. Make sure all heroes are unique
         4. Click "Predict Match Duration" to see the results
+        5. Use "Compare v1 & v2" to compare both models
         """)
 
 if __name__ == "__main__":
