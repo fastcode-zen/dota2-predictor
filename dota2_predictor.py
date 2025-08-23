@@ -45,10 +45,10 @@ def load_model_and_data():
 
 @st.cache_resource
 def load_model_v2():
-    """Load model v2 (poc_03_scripted_model.pt)"""
+    """Load model v2 (poc_04_scripted_model.pt)"""
     try:
         model_dir = './'
-        loaded_model_v2 = torch.jit.load(f"{model_dir}/poc_03_scripted_model.pt", map_location='cpu')
+        loaded_model_v2 = torch.jit.load(f"{model_dir}/poc_04_scripted_model.pt", map_location='cpu')
         loaded_model_v2 = loaded_model_v2.cpu()
         loaded_model_v2.eval()
         return loaded_model_v2
@@ -84,6 +84,29 @@ def get_desc_from_label_id(label_id):
         7: '70-80',
         8: '80-90',
         9: '>90'
+    }
+    return desc_from_label_id[label_id]
+
+def get_desc_from_label_id_v2(label_id):
+    desc_from_label_id = {
+        0: '<=10',
+        1: '10-15',
+        2: '15-20',
+        3: '20-25',
+        4: '25-30',
+        5: '30-35',
+        6: '35-40',
+        7: '40-45',
+        8: '45-50',
+        9: '50-55',
+        10: '55-60',
+        11: '60-65',
+        12: '65-70',
+        13: '70-75',
+        14: '75-80',
+        15: '80-85',
+        16: '85-90',
+        17: '>90'
     }
     return desc_from_label_id[label_id]
 
@@ -287,8 +310,8 @@ def predict_hero_roles_enhanced(radiant_hero_ids, dire_hero_ids, encoder_filtere
 
     return {'radiant': radiant_predictions, 'dire': dire_predictions}
 
-def draw_distribution(probabilities, correct_label=0, heros=[], idx_to_name=None):
-    """Modified version of your draw_distribution function for Streamlit"""
+def draw_distribution(probabilities, correct_label=0, heros=[], idx_to_name=None, label_fn=get_desc_from_label_id):
+    """Draw probability distribution for duration labels"""
     # Convert the probabilities tensor to a numpy array after moving it to CPU
     probabilities_np = probabilities.squeeze().cpu().numpy()
     radiants = []
@@ -306,8 +329,8 @@ def draw_distribution(probabilities, correct_label=0, heros=[], idx_to_name=None
         else:
             dires.append(idx_to_name[hero_idx])
 
-    # Get the class labels (0 to num_classes-1)
-    class_labels = [get_desc_from_label_id(label_id) for label_id in np.arange(len(probabilities_np))]
+    # Use label_fn for class labels
+    class_labels = [label_fn(label_id) for label_id in np.arange(len(probabilities_np))]
 
     # Create the bar plot
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -496,7 +519,7 @@ def main():
     # Predict button V2
     if st.button("🔮 Predict Match Duration (v2)", type="primary", use_container_width=True):
         if model_v2 is None:
-            st.error("Model v2 not found. Please add poc_03_scripted_model.pt to the project directory.")
+            st.error("Model v2 not found. Please add poc_04_scripted_model.pt to the project directory.")
             return
         if len(set(all_selected_heroes)) == 10:
             hero_indices = [name_to_idx[hero] for hero in all_selected_heroes]
@@ -504,12 +527,17 @@ def main():
             if probabilities_v2 is not None:
                 predicted_class_v2 = torch.argmax(probabilities_v2, dim=1).item()
                 predicted_prob_v2 = torch.max(probabilities_v2, dim=1)[0].item()
-                predicted_duration_v2 = get_desc_from_label_id(predicted_class_v2)
+                predicted_duration_v2 = get_desc_from_label_id_v2(predicted_class_v2)
                 st.markdown("### 📊 Prediction Results (v2)")
                 st.metric("Predicted Duration (v2)", f"{predicted_duration_v2} minutes")
                 st.metric("Confidence (v2)", f"{predicted_prob_v2:.1%}")
-                fig_v2 = draw_distribution(probabilities_v2, correct_label=predicted_class_v2, 
-                                      heros=[torch.tensor(idx, device='cpu') for idx in hero_indices], idx_to_name=idx_to_name)
+                fig_v2 = draw_distribution(
+                    probabilities_v2,
+                    correct_label=predicted_class_v2,
+                    heros=[torch.tensor(idx, device='cpu') for idx in hero_indices],
+                    idx_to_name=idx_to_name,
+                    label_fn=get_desc_from_label_id_v2
+                )
                 st.pyplot(fig_v2)
         else:
             st.error("❌ Please select 10 unique heroes (5 for each team) before predicting.")
@@ -530,22 +558,32 @@ def main():
 
                 predicted_class_v2 = torch.argmax(probabilities_v2, dim=1).item()
                 predicted_prob_v2 = torch.max(probabilities_v2, dim=1)[0].item()
-                predicted_duration_v2 = get_desc_from_label_id(predicted_class_v2)
+                predicted_duration_v2 = get_desc_from_label_id_v2(predicted_class_v2)
 
                 col_v1, col_v2 = st.columns(2)
                 with col_v1:
                     st.markdown("### 📊 Prediction Results (v1)")
                     st.metric("Predicted Duration", f"{predicted_duration_v1} minutes")
                     st.metric("Confidence", f"{predicted_prob_v1:.1%}")
-                    fig_v1 = draw_distribution(probabilities_v1, correct_label=predicted_class_v1, 
-                        heros=[torch.tensor(idx, device='cpu') for idx in hero_indices], idx_to_name=idx_to_name)
+                    fig_v1 = draw_distribution(
+                        probabilities_v1,
+                        correct_label=predicted_class_v1,
+                        heros=[torch.tensor(idx, device='cpu') for idx in hero_indices],
+                        idx_to_name=idx_to_name,
+                        label_fn=get_desc_from_label_id
+                    )
                     st.pyplot(fig_v1)
                 with col_v2:
                     st.markdown("### 📊 Prediction Results (v2)")
                     st.metric("Predicted Duration", f"{predicted_duration_v2} minutes")
                     st.metric("Confidence", f"{predicted_prob_v2:.1%}")
-                    fig_v2 = draw_distribution(probabilities_v2, correct_label=predicted_class_v2, 
-                        heros=[torch.tensor(idx, device='cpu') for idx in hero_indices], idx_to_name=idx_to_name)
+                    fig_v2 = draw_distribution(
+                        probabilities_v2,
+                        correct_label=predicted_class_v2,
+                        heros=[torch.tensor(idx, device='cpu') for idx in hero_indices],
+                        idx_to_name=idx_to_name,
+                        label_fn=get_desc_from_label_id_v2
+                    )
                     st.pyplot(fig_v2)
             else:
                 st.error("Error occurred during prediction with model v1 or v2.")
